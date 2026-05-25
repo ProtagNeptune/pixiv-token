@@ -37,3 +37,4 @@ py-modules = ["pixiv_token_fetcher"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra -q"
+pythonpath = ["."]
