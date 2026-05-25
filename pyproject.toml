@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pixiv-token"
-version = "0.2.0"
+version = "0.1.0"
 description = "Fetch Pixiv OAuth access/refresh tokens via stealth browser automation, with multi-account cache and auto refresh."
 readme = "README.md"
 license = { file = "LICENSE" }
