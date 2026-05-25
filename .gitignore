@@ -16,6 +16,18 @@ __pycache__/
 # pip 缓存
 pip-wheel-metadata/
 
+# 构建 / 发布产物
+build/
+dist/
+*.egg-info/
+
+# 测试缓存
+.pytest_cache/
+
+# 凭证缓存（避免误提交 token）
+.pixiv-token/
+.pixiv-token.json
+
 # 日志文件
 *.log
 

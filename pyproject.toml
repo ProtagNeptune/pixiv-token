@@ -21,6 +21,9 @@ dependencies = [
     "cloakbrowser>=0.3.30",
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
 [project.urls]
 Homepage = "https://github.com/piglig/pixiv-token"
 Issues = "https://github.com/piglig/pixiv-token/issues"
@@ -30,3 +33,7 @@ pixiv-token = "pixiv_token_fetcher:main"
 
 [tool.setuptools]
 py-modules = ["pixiv_token_fetcher"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
