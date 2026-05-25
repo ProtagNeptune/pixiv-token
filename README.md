@@ -2,7 +2,7 @@
 
 🌍 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A Python automation tool using Playwright to simulate Pixiv OAuth login, capture authorization code, and exchange it for an access token.
+A Python automation tool that simulates Pixiv OAuth login, captures the authorization code, and exchanges it for an access token.
 
 ---
 
@@ -16,6 +16,11 @@ A Python automation tool using Playwright to simulate Pixiv OAuth login, capture
 - ✅ Slow typing to bypass bot detection
 - ✅ Auto-skip security prompt pages (Passkeys / 2FA reminders)
 - ✅ Multi-selector fallback for Pixiv login form compatibility
+- ✅ Token cache + auto refresh (browser login only on first run / when refresh token expires)
+- ✅ Multi-account support (one cache file per email under `~/.pixiv-token/`)
+- ✅ Machine-readable output (`--json`, `--print <field>`) — result on stdout, logs on stderr
+- ✅ Standard `logging` integration — library is silent by default; consumers configure their own handlers
+- ✅ Installable as a library (`pip install .`) and CLI (`pixiv-token`)
 
 ---
 
@@ -33,15 +38,11 @@ cd pixiv-token
 Recommended Python version: `>=3.8`
 
 ```bash
+# As a dev checkout
 pip install -r requirements.txt
-playwright install chromium
-```
 
-Sample requirements.txt:
-
-```txt
-requests==2.32.2
-playwright>=1.51.0
+# Or install as a package (exposes the `pixiv-token` CLI)
+pip install .
 ```
 
 ---
@@ -51,40 +52,90 @@ playwright>=1.51.0
 ### Command line
 
 ```bash
-# Headless mode (default)
+# First run for an account — credentials required, browser login performed and token cached
 python pixiv_token_fetcher.py -u "your_email" -p "your_password"
 
-# Visible browser mode
+# Subsequent runs — cache is used; if expired, refresh_token is used automatically
+# (auto-selected when only one account is cached)
+python pixiv_token_fetcher.py
+
+# Multiple accounts — select which cached account to use
+python pixiv_token_fetcher.py --account "your_email"
+
+# List all cached accounts and their expiry
+python pixiv_token_fetcher.py --list-accounts
+
+# Visible browser mode (when login is needed)
 python pixiv_token_fetcher.py -u "your_email" -p "your_password" --no-headless
+
+# Force a fresh browser login (ignore cache)
+python pixiv_token_fetcher.py -u "your_email" -p "your_password" --force-login
+
+# Custom cache directory
+python pixiv_token_fetcher.py --cache-dir ./tokens
+
+# Machine-readable: full record as JSON on stdout (status logs go to stderr)
+python pixiv_token_fetcher.py --json
+
+# Pipeline-friendly: print a single field only (no labels, no emoji)
+ACCESS_TOKEN=$(python pixiv_token_fetcher.py --print access_token)
+REFRESH=$(python pixiv_token_fetcher.py --print refresh_token)
+
+# Verbosity (logs are written to stderr only)
+python pixiv_token_fetcher.py --verbose   # debug-level logs
+python pixiv_token_fetcher.py --quiet     # warnings/errors only
+
+# If installed via `pip install .`, the same CLI is available as `pixiv-token`
+pixiv-token --print access_token
 ```
+
+Default cache directory: `~/.pixiv-token/`, one file per account (`<email>.json`). Each file stores `username`, `access_token`, `refresh_token`, and `expires_at` — treat the directory like a credential store.
 
 ### As a module
 
 ```python
 from pixiv_token_fetcher import PixivTokenFetcher
 
+# First login for an account — credentials required
 fetcher = PixivTokenFetcher(
     username="your_pixiv_email",
     password="your_pixiv_password",
-    headless=True,  # Set to False to show browser window
+    headless=True,
 )
-code = fetcher.fetch_code()
-if code:
-    token_info = fetcher.exchange_token(code)
-    print("Access Token:", token_info.get("access_token"))
-    print("Refresh Token:", token_info.get("refresh_token"))
+token = fetcher.get_token()  # cache → refresh → browser login (in that order)
+print(token["access_token"])
+
+# Later, reuse the cache without credentials
+fetcher = PixivTokenFetcher(account="your_pixiv_email")
+token = fetcher.get_token()
+
+# List cached accounts
+for acc in PixivTokenFetcher().list_cached_accounts():
+    print(acc["username"], acc["expires_at"])
+```
+
+The returned `token` dict always contains `username`, `access_token`, `refresh_token`, and `expires_at` (unix seconds).
+
+Logging: the library uses the standard `logging` module under the logger name `pixiv_token_fetcher` and ships **no handlers** by default (silent on import). Wire it into your own setup:
+
+```python
+import logging
+logging.getLogger("pixiv_token_fetcher").setLevel(logging.INFO)
+logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s")
 ```
 
 ---
 
 ## 🔧 How It Works
 
-1. **PKCE Generation** — Generates `code_verifier` and `code_challenge` for OAuth PKCE flow
-2. **Browser Launch** — Uses Chrome's native `--headless=new` mode (full browser engine without a visible window, undetectable by reCAPTCHA)
-3. **Auto Login** — Fills in email/password with slow typing to mimic human input
-4. **Code Capture** — Intercepts the `pixiv://account/login?code=...` redirect via CDP (`Network.requestWillBeSent`)
-5. **Security Prompt Handling** — Automatically clicks "Remind me later" / "Skip" if Pixiv shows a Passkeys/2FA setup page
-6. **Token Exchange** — Exchanges the authorization code for access & refresh tokens via Pixiv OAuth API
+1. **Cache Lookup** — Resolves the account (explicit `--account`/`--username`, or auto-detected if only one is cached) and reads `~/.pixiv-token/<email>.json`; if `access_token` is still valid, returns it immediately
+2. **Refresh** — If the access token has expired, calls Pixiv's `grant_type=refresh_token` endpoint and updates the cache (no browser involved)
+3. **PKCE Generation** *(fallback)* — Generates `code_verifier` and `code_challenge` for OAuth PKCE flow
+4. **Browser Launch** — Launches a stealth Chromium build to perform the login
+5. **Auto Login** — Fills in email/password with slow typing to mimic human input
+6. **Code Capture** — Intercepts the `pixiv://account/login?code=...` redirect via CDP (`Network.requestWillBeSent`)
+7. **Security Prompt Handling** — Automatically clicks "Remind me later" / "Skip" if Pixiv shows a Passkeys/2FA setup page
+8. **Token Exchange** — Exchanges the authorization code for access & refresh tokens and writes them to the cache
 
 ---
 
@@ -100,17 +151,29 @@ if code:
 ## 🧪 Example Output
 
 ```
-🚀 Opening Pixiv login page...
-📧 Username input completed
-🔒 Password input completed
-🔑 Login submitted
-  Clicking 'Remind me later' to skip security prompt
-✅ Code captured: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-🎟️ Access Token: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-🔁 Refresh Token: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+[INFO] opening pixiv login page
+[INFO] filled username field
+[INFO] filled password field
+[INFO] submitted login form
+[INFO] skipping security prompt via 'Remind me later' button
+[INFO] captured authorization code
+access_token:  xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+refresh_token: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+expires_at:    2026-05-25 14:32:10
 ```
 
+The `[INFO]` lines are logs (written to stderr); `access_token` / `refresh_token` / `expires_at` are the result (written to stdout). Pipe-friendly.
+
 ---
+
+## 🧪 Testing
+
+Unit tests cover the non-browser logic (cache I/O, account resolution, token-refresh orchestration, CLI output contracts). Browser flow is mocked, so the suite runs in under a second without needing CloakBrowser/Playwright installed.
+
+```bash
+pip install -e ".[test]"
+pytest
+```
 
 ## 📝 License
 

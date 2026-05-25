@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pixiv-token"
+version = "0.2.0"
+description = "Fetch Pixiv OAuth access/refresh tokens via stealth browser automation, with multi-account cache and auto refresh."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+authors = [{ name = "piglig" }]
+keywords = ["pixiv", "oauth", "token", "playwright", "cloakbrowser"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "requests>=2.32",
+    "cloakbrowser>=0.3.30",
+]
+
+[project.urls]
+Homepage = "https://github.com/piglig/pixiv-token"
+Issues = "https://github.com/piglig/pixiv-token/issues"
+
+[project.scripts]
+pixiv-token = "pixiv_token_fetcher:main"
+
+[tool.setuptools]
+py-modules = ["pixiv_token_fetcher"]
