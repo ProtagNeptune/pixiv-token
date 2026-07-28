@@ -40,6 +40,7 @@ SKIP_BUTTON_TEXTS = ["Remind me later", "Skip", "あとで", "スキップ"]
 DEFAULT_CACHE_DIR = Path.home() / ".pixiv-token"
 EXPIRY_SAFETY_MARGIN = 60  # seconds — refresh slightly before actual expiry
 TOKEN_FIELDS = ("access_token", "refresh_token", "expires_at")
+HEADLESS_AUTHORIZATION_TIMEOUT = 30  # seconds
 
 
 def _sanitize_account(name: str) -> str:
@@ -246,17 +247,28 @@ class PixivTokenFetcher:
             page.goto(self._get_login_url())
             self._perform_login(page)
 
-            for _ in range(30):
-                if captured_code or page.is_closed():
-                    break
+            if not self.headless:
+                log.info("waiting for interactive sign-in and CAPTCHA completion")
+
+            deadline = time.monotonic() + HEADLESS_AUTHORIZATION_TIMEOUT
+            while not captured_code and not page.is_closed():
                 try:
                     self._skip_security_prompts(page)
                 except Exception:
                     log.debug("skip_security_prompts raised", exc_info=True)
+
+                # Interactive mode must remain available for the user to finish
+                # CAPTCHA or other manual verification. Headless mode retains the
+                # original bounded wait so unattended runs still terminate.
+                if self.headless and time.monotonic() >= deadline:
+                    break
                 time.sleep(1)
 
             if not captured_code:
-                log.warning("timed out waiting for authorization code")
+                if page.is_closed():
+                    log.warning("browser was closed before authorization completed")
+                else:
+                    log.warning("timed out waiting for authorization code")
 
             return captured_code
         finally:
@@ -281,7 +293,8 @@ def _build_parser():
     parser.add_argument("--username", "-u", help="Pixiv email (only needed when cache is missing/invalid)")
     parser.add_argument("--password", "-p", help="Pixiv password (only needed when cache is missing/invalid)")
     parser.add_argument("--account", "-a", help="Select cached account by email (auto-detected if only one is cached)")
-    parser.add_argument("--no-headless", action="store_true", help="Show browser window")
+    parser.add_argument("--no-headless", action="store_true",
+                        help="Show browser window and wait for manual sign-in or CAPTCHA completion")
     parser.add_argument("--cache-dir", help=f"Token cache directory (default: {DEFAULT_CACHE_DIR})")
     parser.add_argument("--force-login", action="store_true", help="Ignore cache and perform a fresh browser login")
     parser.add_argument("--list-accounts", action="store_true", help="List cached accounts and exit")
